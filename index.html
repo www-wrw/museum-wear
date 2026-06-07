@@ -139,6 +139,16 @@
     // ── React hooks ──────────────────────────────────────────────────────────
     const { useState, useEffect, useRef, useCallback } = React;
 
+    function useMobile() {
+      const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+      React.useEffect(() => {
+        const handler = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handler);
+        return () => window.removeEventListener('resize', handler);
+      }, []);
+      return isMobile;
+    }
+
 
 // ── Palette & constants ──────────────────────────────────────────────────────
 const PALETTE = {
@@ -967,6 +977,8 @@ function OutfitPanel({ selectedItems, allCloset, onClear, onSaveOutfit }) {
 function SoftMuseumWardrobe() {
   const [data, setData] = useState({ closet:[], wishlist:[], outfits:[] });
   const [loading, setLoading] = useState(true);
+  const isMobile = useMobile();
+  const [showOutfitBuilder, setShowOutfitBuilder] = useState(false);
   const [tab, setTab] = useState("closet");
   const [showAdd, setShowAdd] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1089,13 +1101,13 @@ function SoftMuseumWardrobe() {
       {/* Header */}
       <div style={{
         borderBottom:`1px solid ${PALETTE.linen}`,
-        padding:"20px 28px 0",
+        padding: isMobile ? "14px 16px 0" : "20px 28px 0",
         background:PALETTE.warmWhite,
         position:"sticky",top:0,zIndex:100,
       }}>
         <div style={{
           display:"flex",alignItems:"flex-end",
-          justifyContent:"space-between",marginBottom:16,
+          justifyContent:"space-between",marginBottom: isMobile ? 12 : 16,
         }}>
           <div>
             <div style={{
@@ -1152,11 +1164,11 @@ function SoftMuseumWardrobe() {
       {/* Body */}
       <div style={{
         display:"grid",
-        gridTemplateColumns: tab === "outfits" ? "1fr" : "1fr 300px",
+        gridTemplateColumns: (tab === "outfits" || isMobile) ? "1fr" : "1fr 300px",
         gap:0,minHeight:"calc(100vh - 100px)",
       }}>
         {/* Main panel */}
-        <div style={{padding:"24px 28px"}}>
+        <div style={{padding: isMobile ? "16px" : "24px 28px"}}>
 
           {tab === "outfits" ? (
             <div>
@@ -1220,7 +1232,7 @@ function SoftMuseumWardrobe() {
           ) : (
             <>
               {/* Filters */}
-              <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:20,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16,flexDirection: isMobile ? "column" : "row",flexWrap:"wrap"}}>
                 <input
                   value={searchQ}
                   onChange={e=>setSearchQ(e.target.value)}
@@ -1232,7 +1244,7 @@ function SoftMuseumWardrobe() {
                     padding:"7px 12px",outline:"none",width:200,
                   }}
                 />
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",overflowX: isMobile ? "auto" : "visible",paddingBottom: isMobile ? 4 : 0,width: isMobile ? "100%" : "auto"}}>
                   {["All","Top","Blouse","Knit","Bottom","Trouser","Skirt","Dress","Shoes","Bag","Accessory","Outerwear"].map(c=>(
                     <button key={c} onClick={()=>setFilterCat(c)} style={{
                       padding:"5px 10px",borderRadius:2,cursor:"pointer",
@@ -1260,7 +1272,7 @@ function SoftMuseumWardrobe() {
               ) : (
                 <div style={{
                   display:"grid",
-                  gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",
+                  gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(auto-fill,minmax(160px,1fr))",
                   gap:14,
                 }}>
                   {filtered.map(item => (
@@ -1283,11 +1295,23 @@ function SoftMuseumWardrobe() {
         {/* Right panel — outfit builder, only on closet tab */}
         {tab !== "outfits" && (
           <div style={{
-            borderLeft:`1px solid ${PALETTE.linen}`,
-            padding:"24px 20px",
+            borderLeft: isMobile ? "none" : `1px solid ${PALETTE.linen}`,
+            borderTop: isMobile ? `1px solid ${PALETTE.linen}` : "none",
+            padding: isMobile ? "16px" : "24px 20px",
             background:PALETTE.cream,
-            minHeight:"calc(100vh - 100px)",
           }}>
+            {isMobile && (
+              <button onClick={() => setShowOutfitBuilder(b => !b)} style={{
+                width:"100%", padding:"10px 0", background:"transparent",
+                border:`1px solid ${PALETTE.linen}`, borderRadius:2, marginBottom:12,
+                fontFamily:"'Jost',sans-serif", fontSize:10,
+                letterSpacing:"0.2em", textTransform:"uppercase",
+                color:PALETTE.softInk, cursor:"pointer",
+              }}>
+                {showOutfitBuilder ? "▲ Hide Outfit Builder" : "▼ Outfit Builder"}
+              </button>
+            )}
+            {(!isMobile || showOutfitBuilder) && (
             {tab === "closet" ? (
               <OutfitPanel
                 selectedItems={selectedItems}
@@ -1312,6 +1336,7 @@ function SoftMuseumWardrobe() {
                 letterSpacing:"0.2em",textTransform:"uppercase",
                 color:PALETTE.mutedSage,
               }}>{savedMsg}</div>
+            )}
             )}
           </div>
         )}
