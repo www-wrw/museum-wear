@@ -16,8 +16,7 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel">
-    // ── Firebase init ────────────────────────────────────────────────────────
+  <script>
     const firebaseConfig = {
       apiKey: "AIzaSyDLwWFmsnWh5TTRE4A9lRn9DldQvue4lZU",
       authDomain: "museum-wear.firebaseapp.com",
@@ -28,6 +27,8 @@
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+  </script>
+  <script type="text/babel">
 
     // ── PIN lock ─────────────────────────────────────────────────────────────
     const PIN_HASH = "1adfa8633a067294c1036fb168c48de3626256afae07ab0c23bdf4fad5549f91";
@@ -959,7 +960,7 @@ function SoftMuseumWardrobe() {
   const [savedMsg, setSavedMsg] = useState("");
 
   useEffect(() => {
-    fsLoadAll().then(d => { setData(d); setLoading(false); });
+    fsLoadAll().then(d => { setData(d); setLoading(false); }).catch(err => { console.error("Firestore error:", err); setLoading(false); });
   }, []);
 
   function addItem(item) {
