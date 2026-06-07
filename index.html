@@ -209,6 +209,7 @@ JSON structure:
     headers: {
       "Content-Type": "application/json",
       "anthropic-dangerous-direct-browser-access": "true",
+      "x-api-key": localStorage.getItem("smw_api_key") || "",
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
@@ -292,6 +293,7 @@ Limit closetSuggestions to max 2 items. Limit missingSuggestions to max 2 items.
     headers: {
       "Content-Type": "application/json",
       "anthropic-dangerous-direct-browser-access": "true",
+      "x-api-key": localStorage.getItem("smw_api_key") || "",
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
@@ -1288,12 +1290,61 @@ function SoftMuseumWardrobe() {
       )}
     </div>
   );
+
+// ── API Key Setup ─────────────────────────────────────────────────────────────
+function ApiKeySetup({ onDone }) {
+  const [key, setKey] = React.useState("");
+  const P = {
+    warmWhite:"#FAF7F2", cream:"#F5F0E8", dustyRose:"#C4A89A",
+    antiquGold:"#B8975A", ink:"#2C2520", softInk:"#4A3F3A", linen:"#E8E0D0",
+  };
+  function save() {
+    if (!key.trim().startsWith("sk-ant-")) return;
+    localStorage.setItem("smw_api_key", key.trim());
+    onDone();
+  }
+  return (
+    <div style={{minHeight:"100vh",background:P.warmWhite,display:"flex",
+      flexDirection:"column",alignItems:"center",justifyContent:"center",gap:28,padding:32}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,letterSpacing:"0.4em",
+          textTransform:"uppercase",color:P.antiquGold,marginBottom:8}}>One-time setup</div>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:26,
+          fontWeight:300,color:P.ink}}>AI Analysis Key</div>
+        <div style={{fontFamily:"'Jost',sans-serif",fontSize:12,color:P.softInk,
+          opacity:0.7,marginTop:10,lineHeight:1.7,maxWidth:340}}>
+          Paste your Anthropic API key below. It stays in your browser only — never sent anywhere else.
+        </div>
+      </div>
+      <div style={{width:"100%",maxWidth:380,display:"flex",flexDirection:"column",gap:12}}>
+        <input
+          type="password"
+          placeholder="sk-ant-..."
+          value={key}
+          onChange={e => setKey(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && save()}
+          style={{
+            width:"100%",fontFamily:"'Jost',sans-serif",fontSize:13,
+            color:P.ink,background:P.cream,border:`1px solid ${P.linen}`,
+            borderRadius:2,padding:"10px 14px",outline:"none",
+          }}
+        />
+        <button onClick={save} style={{
+          width:"100%",padding:"11px 0",background:P.dustyRose,border:"none",
+          borderRadius:2,fontFamily:"'Jost',sans-serif",fontSize:10,
+          letterSpacing:"0.3em",textTransform:"uppercase",color:"white",cursor:"pointer",
+        }}>Save & Continue</button>
+      </div>
+    </div>
+  );
 }
 
-// ── App root with lock screen ─────────────────────────────────────────────────
+// ── App root ──────────────────────────────────────────────────────────────────
 function App() {
   const [unlocked, setUnlocked] = React.useState(!!sessionStorage.getItem("smw_unlocked"));
+  const [hasKey, setHasKey] = React.useState(!!localStorage.getItem("smw_api_key"));
   if (!unlocked) return <LockScreen onUnlock={() => setUnlocked(true)} />;
+  if (!hasKey) return <ApiKeySetup onDone={() => setHasKey(true)} />;
   return <SoftMuseumWardrobe />;
 }
 
