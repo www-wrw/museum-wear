@@ -209,6 +209,7 @@ JSON structure:
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
       "x-api-key": localStorage.getItem("smw_api_key") || "",
     },
@@ -293,6 +294,7 @@ Limit closetSuggestions to max 2 items. Limit missingSuggestions to max 2 items.
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
       "x-api-key": localStorage.getItem("smw_api_key") || "",
     },
