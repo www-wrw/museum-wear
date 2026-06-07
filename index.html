@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soft Museum Wardrobe</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #FAF7F2; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+
+// ── Palette & constants ──────────────────────────────────────────────────────
+const PALETTE = {
+  cream: "#F5F0E8",
+  warmWhite: "#FAF7F2",
+  dustyRose: "#C4A89A",
+  mutedSage: "#8A9B8E",
+  antiquGold: "#B8975A",
+  ink: "#2C2520",
+  softInk: "#4A3F3A",
+  paleBlush: "#EDE0D8",
+  linen: "#E8E0D0",
+  deepBrown: "#3D2B1F",
+};
+
+const CATEGORIES = ["Top","Blouse","Knit","Button-Down","Cami / Tank","Jeans","Trouser","Skirt","Dress","Shorts","Outerwear","Shoes","Accessory","Bag"];
+const COLORS = ["Ivory / Cream","Oat / Linen","White","Dusty Rose / Blush","Sage / Olive","Camel / Tan","Cognac / Brown","Black","Dark Brown","Red","Champagne","Indigo / Dark Wash","Medium Wash","Light Wash","Raw / Ecru Denim","Striped","Other"];
+const FABRICS = ["Linen","Cotton","Silk / Satin","Wool / Knit","Chiffon","Poplin","Denim","Raw Denim","Stretch Denim","Leather","Velvet","Synthetic Blend","Eyelet / Lace","Broderie Anglaise","Other"];
+const WASHES = ["N/A","Raw / Rigid","Dark Wash","Medium Wash","Light Wash","Ecru / Off-White","Black Wash","Acid Wash"];
+const OCCASIONS = ["Everyday","Work","Evening","Weekend","Special Occasion","All Occasions"];
+const AESTHETIC_TAGS = ["Parisian Archivist","Museum Wanderer","Reading Room","Soft Occasion","Whimsy Detail","Autumn Curator"];
+
+const STORAGE_KEY = "softMuseumWardrobe_v1";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function uid() { return Math.random().toString(36).slice(2,10); }
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { closet: [], wishlist: [], outfits: [] };
+  } catch { return { closet: [], wishlist: [], outfits: [] }; }
+}
+
+function saveData(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+}
+
+// ── Image compression ────────────────────────────────────────────────────────
+function compressImage(base64Photo, maxWidth = 1024, quality = 0.8) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let { width, height } = img;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => resolve(base64Photo); // fallback to original
+    img.src = base64Photo;
+  });
+}
+
+// ── AI image analysis call ───────────────────────────────────────────────────
+async function analyzeClothingImage(base64Photo) {
+  // Compress before sending — phone photos can be 5–10MB
+  const compressed = await compressImage(base64Photo);
+  const base64Data = compressed.split(",")[1];
+
+  const prompt = `You are a personal stylist analyzing a clothing item photo. Look carefully at the garment and respond ONLY with a valid JSON object — no markdown, no backticks, no explanation, just the raw JSON.
+
+Use ONLY the exact values listed below for each field.
+
+Categories: Top, Blouse, Knit, Button-Down, Cami / Tank, Jeans, Trouser, Skirt, Dress, Shorts, Outerwear, Shoes, Accessory, Bag
+Colors: Ivory / Cream, Oat / Linen, White, Dusty Rose / Blush, Sage / Olive, Camel / Tan, Cognac / Brown, Black, Dark Brown, Red, Champagne, Indigo / Dark Wash, Medium Wash, Light Wash, Raw / Ecru Denim, Striped, Other
+Fabrics: Linen, Cotton, Silk / Satin, Wool / Knit, Chiffon, Poplin, Denim, Raw Denim, Stretch Denim, Leather, Velvet, Synthetic Blend, Eyelet / Lace, Broderie Anglaise, Other
+Occasions: Everyday, Work, Evening, Weekend, Special Occasion, All Occasions
+Aesthetic tags: Parisian Archivist, Museum Wanderer, Reading Room, Soft Occasion, Whimsy Detail, Autumn Curator
+
+For jeans specifically: category should be "Jeans", fabric should be "Denim", "Raw Denim", or "Stretch Denim", and color should reflect the wash (e.g. "Indigo / Dark Wash", "Medium Wash", "Light Wash").
+
+JSON structure:
+{
+  "name": "descriptive name, e.g. 'Indigo Wide-Leg Jeans' or 'Cream Linen Trouser'",
+  "category": "exact value from Categories list",
+  "color": "exact value from Colors list",
+  "fabric": "exact value from Fabrics list",
+  "occasions": ["values from Occasions list"],
+  "aestheticTags": ["values from Aesthetic tags list"],
+  "notes": "one sentence about this piece"
+}`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1000,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/jpeg", data: base64Data }
+          },
+          { type: "text", text: prompt }
+        ]
+      }]
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("API HTTP error:", response.status, errText);
+    throw new Error(`API ${response.status}: ${errText.slice(0, 120)}`);
+  }
+
+  const data = await response.json();
+  console.log("API response:", JSON.stringify(data, null, 2));
+
+  if (data.error) throw new Error(data.error.message || "API returned an error");
+
+  const text = data.content?.map(b => b.text || "").join("") || "";
+  console.log("Raw text:", text);
+
+  // Extract JSON block — handles any surrounding text or markdown
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No JSON in response — please fill in manually.");
+
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error("Couldn't parse response — please fill in manually.");
+  }
+}
+
+// ── AI recommendation call ───────────────────────────────────────────────────
+async function getOutfitRecommendation(selectedItems, allCloset) {
+  const itemDesc = selectedItems.map(i =>
+    `${i.name} (${i.category}, ${i.color}${i.wash && i.wash !== "N/A" ? " " + i.wash : ""}, ${i.fabric})`
+  ).join(", ");
+
+  const closetDesc = allCloset
+    .filter(i => !selectedItems.find(s => s.id === i.id))
+    .slice(0, 20)
+    .map(i => `${i.name} (${i.category}, ${i.color}${i.wash && i.wash !== "N/A" ? " " + i.wash : ""}, ${i.fabric})`)
+    .join(", ");
+
+  const prompt = `You are a personal stylist for someone building a "Soft Museum" aesthetic wardrobe. This aesthetic is: curated, chic, romantic-feminine, quiet luxury, whimsical details, earthy palette (cream, oat, dusty rose, sage, cognac, brown, black).
+
+The person has selected these items for an outfit:
+${itemDesc}
+
+Their remaining closet items are:
+${closetDesc || "No other items yet"}
+
+Please respond ONLY with a JSON object (no markdown, no preamble) with this exact structure:
+{
+  "outfitName": "a poetic 3-4 word name for this outfit",
+  "formula": "which of the 6 Soft Museum formulas this matches (Parisian Archivist, Museum Wanderer, Reading Room, Soft Occasion, Whimsy Detail Day, Autumn Curator)",
+  "assessment": "2-3 sentences assessing the outfit combination, how well it works for the Soft Museum aesthetic",
+  "closetSuggestions": [
+    {"name": "item name from their closet", "reason": "why it would elevate this outfit"}
+  ],
+  "missingSuggestions": [
+    {"piece": "specific piece type", "description": "exactly what to look for", "why": "how it rounds out the outfit"}
+  ],
+  "stylingTips": ["tip 1", "tip 2", "tip 3"]
+}
+
+Limit closetSuggestions to max 2 items. Limit missingSuggestions to max 2 items. Limit stylingTips to 3.`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  const data = await response.json();
+  const text = data.content?.map(b => b.text || "").join("") || "{}";
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No JSON in response");
+  return JSON.parse(jsonMatch[0]);
+}
+
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+function GrainOverlay() {
+  return (
+    <div style={{
+      position:"fixed",inset:0,pointerEvents:"none",zIndex:999,
+      backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`,
+      opacity:0.5,
+    }} />
+  );
+}
+
+function ClothingCard({ item, selected, onSelect, onDelete, onToggleWishlist, isWishlist }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={() => onSelect && onSelect(item)}
+      style={{
+        background: selected ? PALETTE.paleBlush : PALETTE.warmWhite,
+        border: `1px solid ${selected ? PALETTE.dustyRose : PALETTE.linen}`,
+        borderRadius: 2,
+        overflow: "hidden",
+        cursor: onSelect ? "pointer" : "default",
+        transition: "all 0.25s ease",
+        transform: hovered ? "translateY(-2px)" : "none",
+        boxShadow: hovered ? `0 8px 24px rgba(44,37,32,0.08)` : `0 1px 4px rgba(44,37,32,0.04)`,
+        position: "relative",
+      }}
+    >
+      {/* Photo area */}
+      <div style={{
+        width:"100%", paddingBottom:"110%", position:"relative",
+        background: PALETTE.linen, overflow:"hidden",
+      }}>
+        {item.photo ? (
+          <img src={item.photo} alt={item.name} style={{
+            position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"
+          }} />
+        ) : (
+          <div style={{
+            position:"absolute",inset:0,display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",gap:6,
+          }}>
+            <div style={{fontSize:28,opacity:0.3}}>
+              {item.category === "Shoes" ? "👟" :
+               item.category === "Bag" ? "👜" :
+               item.category === "Accessory" ? "💎" : "👗"}
+            </div>
+            <span style={{
+              fontFamily:"'Jost',sans-serif",fontSize:9,
+              letterSpacing:"0.2em",textTransform:"uppercase",
+              color:PALETTE.softInk,opacity:0.5,
+            }}>{item.category}</span>
+          </div>
+        )}
+        {selected && (
+          <div style={{
+            position:"absolute",top:8,right:8,width:20,height:20,
+            borderRadius:"50%",background:PALETTE.dustyRose,
+            display:"flex",alignItems:"center",justifyContent:"center",
+          }}>
+            <span style={{color:"white",fontSize:11}}>✓</span>
+          </div>
+        )}
+        {isWishlist && (
+          <div style={{
+            position:"absolute",top:8,left:8,
+            background:PALETTE.antiquGold,borderRadius:2,
+            padding:"2px 6px",
+          }}>
+            <span style={{
+              fontFamily:"'Jost',sans-serif",fontSize:8,
+              letterSpacing:"0.2em",textTransform:"uppercase",color:"white",
+            }}>Wishlist</span>
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div style={{padding:"12px 12px 10px"}}>
+        <div style={{
+          fontFamily:"'Cormorant Garamond',serif",fontSize:14,
+          fontWeight:400,color:PALETTE.ink,marginBottom:4,
+          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+        }}>{item.name}</div>
+        <div style={{
+          fontFamily:"'Jost',sans-serif",fontSize:10,
+          color:PALETTE.softInk,opacity:0.7,marginBottom:6,
+          letterSpacing:"0.05em",
+        }}>{item.color} · {item.fabric}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+          {item.occasions?.slice(0,2).map(o => (
+            <span key={o} style={{
+              fontFamily:"'Jost',sans-serif",fontSize:8,
+              letterSpacing:"0.15em",textTransform:"uppercase",
+              color:PALETTE.mutedSage,border:`1px solid ${PALETTE.mutedSage}`,
+              padding:"1px 5px",borderRadius:1,
+            }}>{o}</span>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          {onToggleWishlist && (
+            <button onClick={e=>{e.stopPropagation();onToggleWishlist(item);}} style={{
+              flex:1,fontFamily:"'Jost',sans-serif",fontSize:9,
+              letterSpacing:"0.15em",textTransform:"uppercase",
+              border:`1px solid ${PALETTE.linen}`,background:"transparent",
+              color:PALETTE.softInk,padding:"4px 0",cursor:"pointer",
+              borderRadius:1,
+            }}>
+              {isWishlist ? "→ Closet" : "♡ Wish"}
+            </button>
+          )}
+          {onDelete && (
+            <button onClick={e=>{e.stopPropagation();onDelete(item.id);}} style={{
+              fontFamily:"'Jost',sans-serif",fontSize:9,
+              border:`1px solid ${PALETTE.linen}`,background:"transparent",
+              color:PALETTE.dustyRose,padding:"4px 8px",cursor:"pointer",
+              borderRadius:1,
+            }}>✕</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddItemModal({ onSave, onClose, defaultWishlist }) {
+  const [form, setForm] = useState({
+    name:"", category:"Top", color:"Ivory / Cream", fabric:"Linen",
+    occasions:[], aestheticTags:[], brand:"", notes:"",
+    photo:"", isWishlist: defaultWishlist || false,
+    price:"", link:"", wash:"N/A",
+  });
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzed, setAnalyzed] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState(null);
+  const fileRef = useRef();
+
+  async function handlePhoto(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const photoData = ev.target.result;
+      setForm(f => ({...f, photo: photoData}));
+      setAnalyzing(true);
+      setAnalyzed(false);
+      setAnalyzeError(null);
+      try {
+        const result = await analyzeClothingImage(photoData);
+        setForm(f => ({
+          ...f,
+          name: result.name || f.name,
+          category: result.category || f.category,
+          color: result.color || f.color,
+          fabric: result.fabric || f.fabric,
+          wash: result.wash || f.wash,
+          occasions: result.occasions?.length ? result.occasions : f.occasions,
+          aestheticTags: result.aestheticTags?.length ? result.aestheticTags : f.aestheticTags,
+          notes: result.notes || f.notes,
+        }));
+        setAnalyzed(true);
+      } catch(err) {
+        setAnalyzeError(err.message || "Couldn't analyze — please fill in details manually.");
+      } finally {
+        setAnalyzing(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function toggleArr(key, val) {
+    setForm(f => ({...f, [key]: f[key].includes(val)
+      ? f[key].filter(x=>x!==val) : [...f[key], val]}));
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) return;
+    onSave({ ...form, id: uid(), addedAt: Date.now() });
+    onClose();
+  }
+
+  const inputStyle = {
+    width:"100%",fontFamily:"'Jost',sans-serif",fontSize:13,
+    color:PALETTE.ink,background:PALETTE.warmWhite,
+    border:`1px solid ${PALETTE.linen}`,borderRadius:2,
+    padding:"8px 12px",outline:"none",boxSizing:"border-box",
+  };
+  const labelStyle = {
+    fontFamily:"'Jost',sans-serif",fontSize:9,
+    letterSpacing:"0.3em",textTransform:"uppercase",
+    color:PALETTE.antiquGold,display:"block",marginBottom:6,
+  };
+
+  return (
+    <div style={{
+      position:"fixed",inset:0,background:"rgba(44,37,32,0.5)",
+      zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",
+      padding:20,
+    }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:PALETTE.warmWhite,maxWidth:520,width:"100%",
+        maxHeight:"90vh",overflowY:"auto",borderRadius:2,
+        boxShadow:"0 20px 60px rgba(44,37,32,0.2)",
+      }}>
+        {/* Header */}
+        <div style={{
+          padding:"24px 28px 20px",
+          borderBottom:`1px solid ${PALETTE.linen}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center",
+        }}>
+          <div>
+            <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,
+              letterSpacing:"0.35em",textTransform:"uppercase",
+              color:PALETTE.antiquGold,marginBottom:4}}>
+              {form.isWishlist ? "Add to Wishlist" : "Add to Closet"}
+            </div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",
+              fontSize:22,color:PALETTE.ink}}>New Piece</div>
+          </div>
+          <button onClick={onClose} style={{
+            background:"none",border:"none",cursor:"pointer",
+            fontSize:18,color:PALETTE.softInk,opacity:0.5,
+          }}>✕</button>
+        </div>
+
+        <div style={{padding:"24px 28px",display:"flex",flexDirection:"column",gap:20}}>
+          {/* Closet vs Wishlist toggle */}
+          <div style={{display:"flex",gap:0,border:`1px solid ${PALETTE.linen}`,borderRadius:2,overflow:"hidden"}}>
+            {[false,true].map(w => (
+              <button key={w} onClick={()=>setForm(f=>({...f,isWishlist:w}))} style={{
+                flex:1,padding:"8px 0",
+                background:form.isWishlist===w ? PALETTE.paleBlush : "transparent",
+                border:"none",cursor:"pointer",
+                fontFamily:"'Jost',sans-serif",fontSize:10,
+                letterSpacing:"0.2em",textTransform:"uppercase",
+                color:form.isWishlist===w ? PALETTE.dustyRose : PALETTE.softInk,
+              }}>{w ? "♡ Wishlist" : "Closet"}</button>
+            ))}
+          </div>
+
+          {/* Photo */}
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <label style={labelStyle}>Photo</label>
+              {analyzing && (
+                <span style={{
+                  fontFamily:"'Jost',sans-serif",fontSize:9,
+                  letterSpacing:"0.2em",textTransform:"uppercase",
+                  color:PALETTE.antiquGold,
+                }}>✦ Analyzing…</span>
+              )}
+              {analyzed && !analyzing && (
+                <span style={{
+                  fontFamily:"'Jost',sans-serif",fontSize:9,
+                  letterSpacing:"0.2em",textTransform:"uppercase",
+                  color:PALETTE.mutedSage,
+                }}>✓ Fields prefilled — review below</span>
+              )}
+              {analyzeError && !analyzing && (
+                <span style={{
+                  fontFamily:"'Jost',sans-serif",fontSize:9,
+                  color:PALETTE.dustyRose, maxWidth:260,
+                  overflow:"hidden", textOverflow:"ellipsis",
+                  whiteSpace:"nowrap", display:"inline-block",
+                  verticalAlign:"bottom",
+                }} title={analyzeError}>{analyzeError}</span>
+              )}
+            </div>
+            <div onClick={()=>!analyzing&&fileRef.current.click()} style={{
+              width:"100%",paddingBottom:"50%",position:"relative",
+              background:PALETTE.linen,borderRadius:2,
+              cursor:analyzing?"wait":"pointer",
+              border:`1px dashed ${analyzing?PALETTE.antiquGold:analyzed?PALETTE.mutedSage:PALETTE.dustyRose}`,
+              overflow:"hidden",
+              transition:"border-color 0.3s ease",
+            }}>
+              {form.photo ? (
+                <>
+                  <img src={form.photo} alt="" style={{
+                    position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"
+                  }}/>
+                  {analyzing && (
+                    <div style={{
+                      position:"absolute",inset:0,
+                      background:"rgba(245,240,232,0.85)",
+                      display:"flex",flexDirection:"column",
+                      alignItems:"center",justifyContent:"center",gap:8,
+                    }}>
+                      <div style={{
+                        width:28,height:28,borderRadius:"50%",
+                        border:`2px solid ${PALETTE.antiquGold}`,
+                        borderTopColor:"transparent",
+                        animation:"spin 0.8s linear infinite",
+                      }}/>
+                      <span style={{
+                        fontFamily:"'Cormorant Garamond',serif",
+                        fontSize:14,fontStyle:"italic",color:PALETTE.ink,
+                      }}>Analyzing your piece…</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{
+                  position:"absolute",inset:0,display:"flex",
+                  flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,
+                }}>
+                  <span style={{fontSize:24,opacity:0.3}}>📷</span>
+                  <span style={{fontFamily:"'Jost',sans-serif",fontSize:10,
+                    letterSpacing:"0.2em",textTransform:"uppercase",
+                    color:PALETTE.softInk,opacity:0.5}}>Upload photo — AI will prefill details</span>
+                </div>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
+          </div>
+
+          {/* Name */}
+          <div>
+            <label style={labelStyle}>Item Name *</label>
+            <input style={inputStyle} placeholder="e.g. Quince Linen Pleated Trouser"
+              value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label style={labelStyle}>Category</label>
+            <select style={inputStyle} value={form.category}
+              onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+              {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Color + Fabric */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelStyle}>Color</label>
+              <select style={inputStyle} value={form.color}
+                onChange={e=>setForm(f=>({...f,color:e.target.value}))}>
+                {COLORS.map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Fabric</label>
+              <select style={inputStyle} value={form.fabric}
+                onChange={e=>setForm(f=>({...f,fabric:e.target.value}))}>
+                {FABRICS.map(f=><option key={f}>{f}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Wash — only shown for denim */}
+          {["Denim","Raw Denim","Stretch Denim"].includes(form.fabric) && (
+            <div>
+              <label style={labelStyle}>Denim Wash</label>
+              <select style={inputStyle} value={form.wash}
+                onChange={e=>setForm(f=>({...f,wash:e.target.value}))}>
+                {WASHES.filter(w=>w!=="N/A").map(w=><option key={w}>{w}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Occasions */}
+          <div>
+            <label style={labelStyle}>Occasion</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {OCCASIONS.map(o=>(
+                <button key={o} onClick={()=>toggleArr("occasions",o)} style={{
+                  padding:"5px 10px",borderRadius:2,cursor:"pointer",
+                  fontFamily:"'Jost',sans-serif",fontSize:10,
+                  letterSpacing:"0.15em",textTransform:"uppercase",
+                  background:form.occasions.includes(o)?PALETTE.paleBlush:"transparent",
+                  border:`1px solid ${form.occasions.includes(o)?PALETTE.dustyRose:PALETTE.linen}`,
+                  color:form.occasions.includes(o)?PALETTE.dustyRose:PALETTE.softInk,
+                }}>{o}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Aesthetic tags */}
+          <div>
+            <label style={labelStyle}>Soft Museum Formula</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {AESTHETIC_TAGS.map(t=>(
+                <button key={t} onClick={()=>toggleArr("aestheticTags",t)} style={{
+                  padding:"5px 10px",borderRadius:2,cursor:"pointer",
+                  fontFamily:"'Jost',sans-serif",fontSize:10,
+                  letterSpacing:"0.1em",
+                  background:form.aestheticTags.includes(t)?PALETTE.cream:"transparent",
+                  border:`1px solid ${form.aestheticTags.includes(t)?PALETTE.antiquGold:PALETTE.linen}`,
+                  color:form.aestheticTags.includes(t)?PALETTE.antiquGold:PALETTE.softInk,
+                }}>{t}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Brand + Price (wishlist) */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelStyle}>Brand</label>
+              <input style={inputStyle} placeholder="e.g. Madewell"
+                value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))}/>
+            </div>
+            <div>
+              <label style={labelStyle}>Price</label>
+              <input style={inputStyle} placeholder="$0.00"
+                value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))}/>
+            </div>
+          </div>
+
+          {form.isWishlist && (
+            <div>
+              <label style={labelStyle}>Link</label>
+              <input style={inputStyle} placeholder="https://..."
+                value={form.link} onChange={e=>setForm(f=>({...f,link:e.target.value}))}/>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <label style={labelStyle}>Notes</label>
+            <textarea style={{...inputStyle,minHeight:60,resize:"vertical"}}
+              placeholder="Any styling notes..."
+              value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
+          </div>
+
+          <button onClick={handleSave} disabled={analyzing} style={{
+            width:"100%",padding:"12px 0",
+            background:analyzing?PALETTE.linen:PALETTE.dustyRose,
+            border:"none",borderRadius:2,
+            fontFamily:"'Jost',sans-serif",fontSize:11,
+            letterSpacing:"0.3em",textTransform:"uppercase",
+            color:analyzing?PALETTE.softInk:"white",
+            cursor:analyzing?"wait":"pointer",
+          }}>Add to {form.isWishlist?"Wishlist":"Closet"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OutfitPanel({ selectedItems, allCloset, onClear, onSaveOutfit }) {
+  const [rec, setRec] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [outfitName, setOutfitName] = useState("");
+
+  async function analyze() {
+    if (selectedItems.length < 2) return;
+    setLoading(true); setError(null); setRec(null);
+    try {
+      const result = await getOutfitRecommendation(selectedItems, allCloset);
+      setRec(result);
+      setOutfitName(result.outfitName || "");
+    } catch(e) { setError("Couldn't analyze — please try again."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{
+      background:PALETTE.warmWhite,
+      border:`1px solid ${PALETTE.linen}`,
+      borderRadius:2,padding:"20px",
+      display:"flex",flexDirection:"column",gap:16,
+    }}>
+      <div style={{
+        fontFamily:"'Jost',sans-serif",fontSize:9,
+        letterSpacing:"0.35em",textTransform:"uppercase",
+        color:PALETTE.antiquGold,marginBottom:2,
+      }}>Outfit Builder</div>
+
+      {selectedItems.length === 0 ? (
+        <div style={{
+          textAlign:"center",padding:"30px 0",
+          fontFamily:"'Cormorant Garamond',serif",
+          fontSize:16,fontStyle:"italic",
+          color:PALETTE.softInk,opacity:0.5,
+        }}>Select pieces from your closet<br/>to build an outfit</div>
+      ) : (
+        <>
+          {/* Selected items */}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {selectedItems.map(item => (
+              <div key={item.id} style={{
+                display:"flex",alignItems:"center",gap:10,
+                padding:"8px 10px",background:PALETTE.paleBlush,
+                borderRadius:2,
+              }}>
+                {item.photo && (
+                  <img src={item.photo} alt="" style={{
+                    width:32,height:32,objectFit:"cover",borderRadius:1,
+                  }}/>
+                )}
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",
+                    fontSize:13,color:PALETTE.ink}}>{item.name}</div>
+                  <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,
+                    color:PALETTE.softInk,opacity:0.6}}>{item.category}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={analyze} disabled={loading||selectedItems.length<2} style={{
+              flex:1,padding:"9px 0",
+              background:loading?PALETTE.linen:PALETTE.ink,
+              border:"none",borderRadius:2,cursor:loading?"wait":"pointer",
+              fontFamily:"'Jost',sans-serif",fontSize:10,
+              letterSpacing:"0.2em",textTransform:"uppercase",
+              color:loading?PALETTE.softInk:"white",
+            }}>
+              {loading ? "Analyzing…" : "✦ Analyze Outfit"}
+            </button>
+            <button onClick={onClear} style={{
+              padding:"9px 14px",background:"transparent",
+              border:`1px solid ${PALETTE.linen}`,borderRadius:2,
+              cursor:"pointer",fontFamily:"'Jost',sans-serif",
+              fontSize:10,color:PALETTE.softInk,
+            }}>Clear</button>
+          </div>
+
+          {error && (
+            <div style={{fontFamily:"'Jost',sans-serif",fontSize:12,
+              color:PALETTE.dustyRose,textAlign:"center"}}>{error}</div>
+          )}
+
+          {rec && (
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{borderTop:`1px solid ${PALETTE.linen}`,paddingTop:14}}>
+                <div style={{fontFamily:"'Cormorant Garamond',serif",
+                  fontSize:20,fontStyle:"italic",color:PALETTE.ink,
+                  marginBottom:4}}>{rec.outfitName}</div>
+                <div style={{
+                  display:"inline-block",
+                  fontFamily:"'Jost',sans-serif",fontSize:8,
+                  letterSpacing:"0.2em",textTransform:"uppercase",
+                  color:PALETTE.antiquGold,border:`1px solid ${PALETTE.antiquGold}`,
+                  padding:"2px 8px",borderRadius:1,marginBottom:10,
+                }}>{rec.formula}</div>
+                <div style={{fontFamily:"'Jost',sans-serif",fontSize:12,
+                  color:PALETTE.softInk,lineHeight:1.7}}>{rec.assessment}</div>
+              </div>
+
+              {rec.closetSuggestions?.length > 0 && (
+                <div>
+                  <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,
+                    letterSpacing:"0.25em",textTransform:"uppercase",
+                    color:PALETTE.mutedSage,marginBottom:8}}>From your closet</div>
+                  {rec.closetSuggestions.map((s,i) => (
+                    <div key={i} style={{
+                      padding:"8px 10px",background:PALETTE.cream,
+                      borderLeft:`2px solid ${PALETTE.mutedSage}`,
+                      marginBottom:6,borderRadius:"0 2px 2px 0",
+                    }}>
+                      <div style={{fontFamily:"'Cormorant Garamond',serif",
+                        fontSize:13,color:PALETTE.ink}}>{s.name}</div>
+                      <div style={{fontFamily:"'Jost',sans-serif",fontSize:11,
+                        color:PALETTE.softInk,opacity:0.8,lineHeight:1.5}}>{s.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {rec.missingSuggestions?.length > 0 && (
+                <div>
+                  <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,
+                    letterSpacing:"0.25em",textTransform:"uppercase",
+                    color:PALETTE.dustyRose,marginBottom:8}}>Missing pieces</div>
+                  {rec.missingSuggestions.map((s,i) => (
+                    <div key={i} style={{
+                      padding:"8px 10px",background:PALETTE.warmWhite,
+                      borderLeft:`2px solid ${PALETTE.dustyRose}`,
+                      marginBottom:6,border:`1px solid ${PALETTE.linen}`,
+                      borderRadius:"0 2px 2px 0",
+                    }}>
+                      <div style={{fontFamily:"'Cormorant Garamond',serif",
+                        fontSize:13,color:PALETTE.ink}}>{s.piece}</div>
+                      <div style={{fontFamily:"'Jost',sans-serif",fontSize:11,
+                        color:PALETTE.softInk,lineHeight:1.5,marginBottom:3}}>{s.description}</div>
+                      <div style={{fontFamily:"'Jost',sans-serif",fontSize:10,
+                        color:PALETTE.dustyRose,fontStyle:"italic"}}>{s.why}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {rec.stylingTips?.length > 0 && (
+                <div>
+                  <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,
+                    letterSpacing:"0.25em",textTransform:"uppercase",
+                    color:PALETTE.antiquGold,marginBottom:8}}>Styling tips</div>
+                  {rec.stylingTips.map((t,i) => (
+                    <div key={i} style={{
+                      fontFamily:"'Jost',sans-serif",fontSize:12,
+                      color:PALETTE.softInk,lineHeight:1.65,
+                      paddingLeft:14,position:"relative",marginBottom:5,
+                    }}>
+                      <span style={{position:"absolute",left:0,color:PALETTE.antiquGold}}>·</span>
+                      {t}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Save outfit */}
+              <div style={{borderTop:`1px solid ${PALETTE.linen}`,paddingTop:12}}>
+                <input
+                  value={outfitName}
+                  onChange={e=>setOutfitName(e.target.value)}
+                  placeholder="Name this outfit..."
+                  style={{
+                    width:"100%",boxSizing:"border-box",
+                    fontFamily:"'Cormorant Garamond',serif",fontSize:14,
+                    color:PALETTE.ink,background:"transparent",
+                    border:`1px solid ${PALETTE.linen}`,borderRadius:2,
+                    padding:"7px 10px",outline:"none",marginBottom:8,
+                  }}
+                />
+                <button onClick={()=>onSaveOutfit(outfitName||rec.outfitName, rec)} style={{
+                  width:"100%",padding:"9px 0",
+                  background:PALETTE.dustyRose,border:"none",borderRadius:2,
+                  cursor:"pointer",fontFamily:"'Jost',sans-serif",
+                  fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase",
+                  color:"white",
+                }}>Save Outfit</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Main App ─────────────────────────────────────────────────────────────────
+export default function SoftMuseumWardrobe() {
+  const [data, setData] = useState(loadData);
+  const [tab, setTab] = useState("closet"); // closet | wishlist | outfits
+  const [showAdd, setShowAdd] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [filterCat, setFilterCat] = useState("All");
+  const [searchQ, setSearchQ] = useState("");
+  const [savedMsg, setSavedMsg] = useState("");
+
+  useEffect(() => { saveData(data); }, [data]);
+
+  function addItem(item) {
+    setData(d => ({
+      ...d,
+      closet: item.isWishlist ? d.closet : [...d.closet, item],
+      wishlist: item.isWishlist ? [...d.wishlist, item] : d.wishlist,
+    }));
+  }
+
+  function deleteItem(id, list) {
+    setData(d => ({...d, [list]: d[list].filter(i=>i.id!==id)}));
+    setSelectedIds(ids => ids.filter(x=>x!==id));
+  }
+
+  function moveToCloset(item) {
+    setData(d => ({
+      ...d,
+      wishlist: d.wishlist.filter(i=>i.id!==item.id),
+      closet: [...d.closet, {...item, isWishlist:false}],
+    }));
+  }
+
+  function toggleSelect(item) {
+    setSelectedIds(ids =>
+      ids.includes(item.id) ? ids.filter(x=>x!==item.id) : [...ids, item.id]
+    );
+  }
+
+  function saveOutfit(name, rec) {
+    const outfit = {
+      id: uid(),
+      name: name || "Untitled Outfit",
+      items: selectedIds,
+      itemNames: data.closet.filter(i=>selectedIds.includes(i.id)).map(i=>i.name),
+      formula: rec?.formula,
+      assessment: rec?.assessment,
+      createdAt: Date.now(),
+    };
+    setData(d => ({...d, outfits: [...d.outfits, outfit]}));
+    setSavedMsg("Outfit saved!");
+    setTimeout(() => setSavedMsg(""), 2500);
+  }
+
+  function deleteOutfit(id) {
+    setData(d => ({...d, outfits: d.outfits.filter(o=>o.id!==id)}));
+  }
+
+  const allItems = tab === "wishlist" ? data.wishlist : data.closet;
+  const filtered = allItems.filter(i => {
+    const matchCat = filterCat === "All" || i.category === filterCat;
+    const matchQ = !searchQ || i.name.toLowerCase().includes(searchQ.toLowerCase()) ||
+      i.color?.toLowerCase().includes(searchQ.toLowerCase()) ||
+      i.brand?.toLowerCase().includes(searchQ.toLowerCase());
+    return matchCat && matchQ;
+  });
+
+  const selectedItems = data.closet.filter(i => selectedIds.includes(i.id));
+
+  const navItems = [
+    { key:"closet", label:"Closet", count: data.closet.length },
+    { key:"wishlist", label:"Wishlist", count: data.wishlist.length },
+    { key:"outfits", label:"Outfits", count: data.outfits.length },
+  ];
+
+  return (
+    <div style={{
+      minHeight:"100vh",
+      background:PALETTE.warmWhite,
+      fontFamily:"'Jost',sans-serif",
+    }}>
+      <GrainOverlay />
+
+      {/* Google Fonts */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@200;300;400&display=swap');
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: ${PALETTE.linen}; }
+        ::-webkit-scrollbar-thumb { background: ${PALETTE.dustyRose}; }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: ${PALETTE.dustyRose} !important; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+
+      {/* Header */}
+      <div style={{
+        borderBottom:`1px solid ${PALETTE.linen}`,
+        padding:"20px 28px 0",
+        background:PALETTE.warmWhite,
+        position:"sticky",top:0,zIndex:100,
+      }}>
+        <div style={{
+          display:"flex",alignItems:"flex-end",
+          justifyContent:"space-between",marginBottom:16,
+        }}>
+          <div>
+            <div style={{
+              fontFamily:"'Jost',sans-serif",fontSize:9,
+              letterSpacing:"0.4em",textTransform:"uppercase",
+              color:PALETTE.antiquGold,marginBottom:4,
+            }}>Whitney · 2026</div>
+            <div style={{
+              fontFamily:"'Cormorant Garamond',serif",
+              fontSize:28,fontWeight:300,color:PALETTE.ink,
+              lineHeight:1,
+            }}>
+              Soft <em style={{color:PALETTE.dustyRose}}>Museum</em>
+            </div>
+          </div>
+          <button onClick={()=>setShowAdd(true)} style={{
+            background:PALETTE.ink,border:"none",borderRadius:2,
+            padding:"9px 18px",cursor:"pointer",
+            fontFamily:"'Jost',sans-serif",fontSize:10,
+            letterSpacing:"0.25em",textTransform:"uppercase",
+            color:"white",
+          }}>+ Add Piece</button>
+        </div>
+
+        {/* Nav tabs */}
+        <div style={{display:"flex",gap:0}}>
+          {navItems.map(n => (
+            <button key={n.key} onClick={()=>{setTab(n.key);setSelectedIds([]);setFilterCat("All");}} style={{
+              padding:"10px 20px",border:"none",background:"transparent",
+              cursor:"pointer",position:"relative",
+              fontFamily:"'Jost',sans-serif",fontSize:10,
+              letterSpacing:"0.2em",textTransform:"uppercase",
+              color:tab===n.key?PALETTE.ink:PALETTE.softInk,
+              opacity:tab===n.key?1:0.6,
+            }}>
+              {n.label}
+              {n.count > 0 && (
+                <span style={{
+                  marginLeft:6,fontFamily:"'Jost',sans-serif",
+                  fontSize:9,color:PALETTE.dustyRose,
+                }}>({n.count})</span>
+              )}
+              {tab===n.key && (
+                <div style={{
+                  position:"absolute",bottom:0,left:0,right:0,
+                  height:1,background:PALETTE.dustyRose,
+                }}/>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{
+        display:"grid",
+        gridTemplateColumns: tab === "outfits" ? "1fr" : "1fr 300px",
+        gap:0,minHeight:"calc(100vh - 100px)",
+      }}>
+        {/* Main panel */}
+        <div style={{padding:"24px 28px"}}>
+
+          {tab === "outfits" ? (
+            <div>
+              <div style={{
+                fontFamily:"'Cormorant Garamond',serif",
+                fontSize:22,color:PALETTE.ink,marginBottom:20,fontStyle:"italic",
+              }}>Saved Outfits</div>
+              {data.outfits.length === 0 ? (
+                <div style={{
+                  textAlign:"center",padding:"60px 0",
+                  fontFamily:"'Cormorant Garamond',serif",
+                  fontSize:18,fontStyle:"italic",
+                  color:PALETTE.softInk,opacity:0.4,
+                }}>No outfits saved yet.<br/>Build one in your Closet tab.</div>
+              ) : (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+                  {data.outfits.map(outfit => (
+                    <div key={outfit.id} style={{
+                      background:PALETTE.warmWhite,
+                      border:`1px solid ${PALETTE.linen}`,
+                      borderRadius:2,padding:"16px 18px",
+                    }}>
+                      <div style={{
+                        fontFamily:"'Cormorant Garamond',serif",
+                        fontSize:18,fontStyle:"italic",color:PALETTE.ink,
+                        marginBottom:6,
+                      }}>{outfit.name}</div>
+                      {outfit.formula && (
+                        <div style={{
+                          display:"inline-block",marginBottom:10,
+                          fontFamily:"'Jost',sans-serif",fontSize:8,
+                          letterSpacing:"0.2em",textTransform:"uppercase",
+                          color:PALETTE.antiquGold,border:`1px solid ${PALETTE.antiquGold}`,
+                          padding:"2px 7px",borderRadius:1,
+                        }}>{outfit.formula}</div>
+                      )}
+                      <div style={{
+                        fontFamily:"'Jost',sans-serif",fontSize:11,
+                        color:PALETTE.softInk,lineHeight:1.7,marginBottom:10,
+                        opacity:0.8,
+                      }}>{outfit.itemNames?.join(" · ")}</div>
+                      {outfit.assessment && (
+                        <div style={{
+                          fontFamily:"'Jost',sans-serif",fontSize:11,
+                          color:PALETTE.softInk,lineHeight:1.65,
+                          borderTop:`1px solid ${PALETTE.linen}`,
+                          paddingTop:10,marginBottom:10,
+                        }}>{outfit.assessment}</div>
+                      )}
+                      <button onClick={()=>deleteOutfit(outfit.id)} style={{
+                        background:"none",border:"none",cursor:"pointer",
+                        fontFamily:"'Jost',sans-serif",fontSize:10,
+                        letterSpacing:"0.15em",textTransform:"uppercase",
+                        color:PALETTE.dustyRose,padding:0,
+                      }}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Filters */}
+              <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:20,flexWrap:"wrap"}}>
+                <input
+                  value={searchQ}
+                  onChange={e=>setSearchQ(e.target.value)}
+                  placeholder="Search your wardrobe…"
+                  style={{
+                    fontFamily:"'Jost',sans-serif",fontSize:12,
+                    color:PALETTE.ink,background:PALETTE.warmWhite,
+                    border:`1px solid ${PALETTE.linen}`,borderRadius:2,
+                    padding:"7px 12px",outline:"none",width:200,
+                  }}
+                />
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {["All","Top","Blouse","Knit","Bottom","Trouser","Skirt","Dress","Shoes","Bag","Accessory","Outerwear"].map(c=>(
+                    <button key={c} onClick={()=>setFilterCat(c)} style={{
+                      padding:"5px 10px",borderRadius:2,cursor:"pointer",
+                      fontFamily:"'Jost',sans-serif",fontSize:9,
+                      letterSpacing:"0.15em",textTransform:"uppercase",
+                      background:filterCat===c?PALETTE.ink:"transparent",
+                      border:`1px solid ${filterCat===c?PALETTE.ink:PALETTE.linen}`,
+                      color:filterCat===c?"white":PALETTE.softInk,
+                    }}>{c}</button>
+                  ))}
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div style={{
+                  textAlign:"center",padding:"60px 0",
+                  fontFamily:"'Cormorant Garamond',serif",
+                  fontSize:18,fontStyle:"italic",
+                  color:PALETTE.softInk,opacity:0.4,
+                }}>
+                  {allItems.length === 0
+                    ? `Your ${tab} is empty.\nAdd your first piece.`
+                    : "No pieces match your filter."}
+                </div>
+              ) : (
+                <div style={{
+                  display:"grid",
+                  gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",
+                  gap:14,
+                }}>
+                  {filtered.map(item => (
+                    <ClothingCard
+                      key={item.id}
+                      item={item}
+                      selected={selectedIds.includes(item.id)}
+                      onSelect={tab==="closet"?toggleSelect:null}
+                      onDelete={id=>deleteItem(id, tab==="wishlist"?"wishlist":"closet")}
+                      onToggleWishlist={tab==="wishlist"?moveToCloset:undefined}
+                      isWishlist={tab==="wishlist"}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Right panel — outfit builder, only on closet tab */}
+        {tab !== "outfits" && (
+          <div style={{
+            borderLeft:`1px solid ${PALETTE.linen}`,
+            padding:"24px 20px",
+            background:PALETTE.cream,
+            minHeight:"calc(100vh - 100px)",
+          }}>
+            {tab === "closet" ? (
+              <OutfitPanel
+                selectedItems={selectedItems}
+                allCloset={data.closet}
+                onClear={()=>setSelectedIds([])}
+                onSaveOutfit={saveOutfit}
+              />
+            ) : (
+              <div style={{
+                textAlign:"center",padding:"40px 0",
+                fontFamily:"'Cormorant Garamond',serif",
+                fontSize:15,fontStyle:"italic",
+                color:PALETTE.softInk,opacity:0.5,
+                lineHeight:1.7,
+              }}>Move wishlist items<br/>to your closet to<br/>include them in outfits.</div>
+            )}
+
+            {savedMsg && (
+              <div style={{
+                marginTop:16,textAlign:"center",
+                fontFamily:"'Jost',sans-serif",fontSize:11,
+                letterSpacing:"0.2em",textTransform:"uppercase",
+                color:PALETTE.mutedSage,
+              }}>{savedMsg}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showAdd && (
+        <AddItemModal
+          onSave={addItem}
+          onClose={()=>setShowAdd(false)}
+          defaultWishlist={tab==="wishlist"}
+        />
+      )}
+    </div>
+  );
+}
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SoftMuseumWardrobe />);
+  </script>
+</body>
+</html>
