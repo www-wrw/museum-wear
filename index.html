@@ -1032,6 +1032,23 @@ function SoftMuseumWardrobe() {
   );
 
 
+  const allItems = tab === "wishlist" ? data.wishlist : data.closet;
+  const filtered = allItems.filter(i => {
+    const matchCat = filterCat === "All" || i.category === filterCat;
+    const matchQ = !searchQ || i.name.toLowerCase().includes(searchQ.toLowerCase()) ||
+      i.color?.toLowerCase().includes(searchQ.toLowerCase()) ||
+      i.brand?.toLowerCase().includes(searchQ.toLowerCase());
+    return matchCat && matchQ;
+  });
+
+  const selectedItems = data.closet.filter(i => selectedIds.includes(i.id));
+
+  const navItems = [
+    { key:"closet", label:"Closet", count: data.closet.length },
+    { key:"wishlist", label:"Wishlist", count: data.wishlist.length },
+    { key:"outfits", label:"Outfits", count: data.outfits.length },
+  ];
+
   return (
     <div style={{
       minHeight:"100vh",
