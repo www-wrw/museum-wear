@@ -847,7 +847,7 @@ function OutfitPanel({ selectedItems, allCloset, onClear, onSaveOutfit }) {
 }
 
 // ── Main App ─────────────────────────────────────────────────────────────────
-export default function SoftMuseumWardrobe() {
+function SoftMuseumWardrobe() {
   const [data, setData] = useState(loadData);
   const [tab, setTab] = useState("closet"); // closet | wishlist | outfits
   const [showAdd, setShowAdd] = useState(false);
