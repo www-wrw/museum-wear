@@ -108,6 +108,10 @@
     }
 
     // ── Firestore helpers ────────────────────────────────────────────────────
+    function reattachPhoto(item) {
+      const photo = localStorage.getItem("smw_photo_" + item.id);
+      return photo ? { ...item, photo } : item;
+    }
     async function fsLoadAll() {
       const [c, w, o] = await Promise.all([
         db.collection("closet").get(),
@@ -115,12 +119,21 @@
         db.collection("outfits").get(),
       ]);
       return {
-        closet:   c.docs.map(d => ({ id:d.id, ...d.data() })),
-        wishlist: w.docs.map(d => ({ id:d.id, ...d.data() })),
+        closet:   c.docs.map(d => reattachPhoto({ id:d.id, ...d.data() })),
+        wishlist: w.docs.map(d => reattachPhoto({ id:d.id, ...d.data() })),
         outfits:  o.docs.map(d => ({ id:d.id, ...d.data() })),
       };
     }
-    async function fsAdd(col, item) { await db.collection(col).doc(item.id).set(item); }
+    async function fsAdd(col, item) {
+      try {
+        // Store photo in localStorage keyed by item id, save everything else to Firestore
+        const { photo, ...itemWithoutPhoto } = item;
+        if (photo) localStorage.setItem("smw_photo_" + item.id, photo);
+        await db.collection(col).doc(item.id).set(itemWithoutPhoto);
+      } catch(err) {
+        console.error("Firestore save error:", err);
+      }
+    }
     async function fsDel(col, id)   { await db.collection(col).doc(id).delete(); }
 
     // ── React hooks ──────────────────────────────────────────────────────────
