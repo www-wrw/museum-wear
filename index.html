@@ -1312,31 +1312,32 @@ function SoftMuseumWardrobe() {
               </button>
             )}
             {(!isMobile || showOutfitBuilder) && (
-            {tab === "closet" ? (
-              <OutfitPanel
-                selectedItems={selectedItems}
-                allCloset={data.closet}
-                onClear={()=>setSelectedIds([])}
-                onSaveOutfit={saveOutfit}
-              />
-            ) : (
-              <div style={{
-                textAlign:"center",padding:"40px 0",
-                fontFamily:"'Cormorant Garamond',serif",
-                fontSize:15,fontStyle:"italic",
-                color:PALETTE.softInk,opacity:0.5,
-                lineHeight:1.7,
-              }}>Move wishlist items<br/>to your closet to<br/>include them in outfits.</div>
-            )}
-
-            {savedMsg && (
-              <div style={{
-                marginTop:16,textAlign:"center",
-                fontFamily:"'Jost',sans-serif",fontSize:11,
-                letterSpacing:"0.2em",textTransform:"uppercase",
-                color:PALETTE.mutedSage,
-              }}>{savedMsg}</div>
-            )}
+              <>
+                {tab === "closet" ? (
+                  <OutfitPanel
+                    selectedItems={selectedItems}
+                    allCloset={data.closet}
+                    onClear={()=>setSelectedIds([])}
+                    onSaveOutfit={saveOutfit}
+                  />
+                ) : (
+                  <div style={{
+                    textAlign:"center",padding:"40px 0",
+                    fontFamily:"'Cormorant Garamond',serif",
+                    fontSize:15,fontStyle:"italic",
+                    color:PALETTE.softInk,opacity:0.5,
+                    lineHeight:1.7,
+                  }}>Move wishlist items<br/>to your closet to<br/>include them in outfits.</div>
+                )}
+                {savedMsg && (
+                  <div style={{
+                    marginTop:16,textAlign:"center",
+                    fontFamily:"'Jost',sans-serif",fontSize:11,
+                    letterSpacing:"0.2em",textTransform:"uppercase",
+                    color:PALETTE.mutedSage,
+                  }}>{savedMsg}</div>
+                )}
+              </>
             )}
           </div>
         )}
