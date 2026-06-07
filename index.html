@@ -26,7 +26,7 @@
       appId: "1:739362627504:web:27d18f460e83dfc35f4075"
     };
     firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    var db = firebase.firestore();
   </script>
   <script type="text/babel">
 
@@ -960,7 +960,10 @@ function SoftMuseumWardrobe() {
   const [savedMsg, setSavedMsg] = useState("");
 
   useEffect(() => {
-    fsLoadAll().then(d => { setData(d); setLoading(false); }).catch(err => { console.error("Firestore error:", err); setLoading(false); });
+    const loadTimeout = setTimeout(() => setLoading(false), 5000);
+    fsLoadAll()
+      .then(d => { clearTimeout(loadTimeout); setData(d); setLoading(false); })
+      .catch(err => { clearTimeout(loadTimeout); console.error("Firestore error:", err); setLoading(false); });
   }, []);
 
   function addItem(item) {
