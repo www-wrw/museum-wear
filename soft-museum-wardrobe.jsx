@@ -22,19 +22,78 @@ const OCCASIONS = ["Everyday","Work","Evening","Weekend","Special Occasion","All
 const AESTHETIC_TAGS = ["Parisian Archivist","Museum Wanderer","Reading Room","Soft Occasion","Whimsy Detail","Autumn Curator"];
 
 const STORAGE_KEY = "softMuseumWardrobe_v1";
+const DB_NAME = "softMuseumWardrobeDB";
+const DB_VERSION = 1;
+const STORE_NAME = "wardrobe";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2,10); }
 
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : { closet: [], wishlist: [], outfits: [] };
-  } catch { return { closet: [], wishlist: [], outfits: [] }; }
+// ── Storage (IndexedDB) ───────────────────────────────────────────────────────
+// localStorage has a ~5-10MB quota and silently fails (or corrupts) once
+// photos push the saved data past that limit, which made added items
+// disappear on reload. IndexedDB has a much larger quota and is used here
+// instead, with a one-time migration from any existing localStorage data.
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STORE_NAME)) {
+        req.result.createObjectStore(STORE_NAME);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
 
-function saveData(data) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+async function idbGet(key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const req = tx.objectStore(STORE_NAME).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSet(key, value) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+const EMPTY_DATA = { closet: [], wishlist: [], outfits: [] };
+
+async function loadData() {
+  try {
+    const fromIDB = await idbGet(STORAGE_KEY);
+    if (fromIDB) return fromIDB;
+  } catch {}
+
+  // One-time migration from the old localStorage-based storage
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      idbSet(STORAGE_KEY, parsed).catch(() => {});
+      return parsed;
+    }
+  } catch {}
+
+  return EMPTY_DATA;
+}
+
+async function saveData(data) {
+  try {
+    await idbSet(STORAGE_KEY, data);
+  } catch (err) {
+    console.error("Failed to save wardrobe data:", err);
+  }
 }
 
 // ── Image compression ────────────────────────────────────────────────────────
@@ -829,7 +888,8 @@ function OutfitPanel({ selectedItems, allCloset, onClear, onSaveOutfit }) {
 
 // ── Main App ─────────────────────────────────────────────────────────────────
 export default function SoftMuseumWardrobe() {
-  const [data, setData] = useState(loadData);
+  const [data, setData] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("closet"); // closet | wishlist | outfits
   const [showAdd, setShowAdd] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -837,7 +897,15 @@ export default function SoftMuseumWardrobe() {
   const [searchQ, setSearchQ] = useState("");
   const [savedMsg, setSavedMsg] = useState("");
 
-  useEffect(() => { saveData(data); }, [data]);
+  useEffect(() => {
+    let cancelled = false;
+    loadData().then(d => {
+      if (!cancelled) { setData(d); setLoaded(true); }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => { if (loaded) saveData(data); }, [data, loaded]);
 
   function addItem(item) {
     setData(d => ({
@@ -883,6 +951,16 @@ export default function SoftMuseumWardrobe() {
 
   function deleteOutfit(id) {
     setData(d => ({...d, outfits: d.outfits.filter(o=>o.id!==id)}));
+  }
+
+  if (!loaded) {
+    return (
+      <div style={{
+        minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+        background:PALETTE.warmWhite,fontFamily:"'Cormorant Garamond',serif",
+        fontSize:18,fontStyle:"italic",color:PALETTE.softInk,
+      }}>Loading your wardrobe…</div>
+    );
   }
 
   const allItems = tab === "wishlist" ? data.wishlist : data.closet;
