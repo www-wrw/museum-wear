@@ -422,7 +422,7 @@ function GrainOverlay() {
   );
 }
 
-function ClothingCard({ item, selected, onSelect, onDelete, onToggleWishlist, isWishlist }) {
+function ClothingCard({ item, selected, onSelect, onEdit, onDelete, onToggleWishlist, isWishlist }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -524,6 +524,14 @@ function ClothingCard({ item, selected, onSelect, onDelete, onToggleWishlist, is
               {isWishlist ? "→ Closet" : "♡ Wish"}
             </button>
           )}
+          {onEdit && (
+            <button onClick={e=>{e.stopPropagation();onEdit(item);}} style={{
+              fontFamily:"'Jost',sans-serif",fontSize:9,
+              border:`1px solid ${PALETTE.linen}`,background:"transparent",
+              color:PALETTE.softInk,padding:"4px 8px",cursor:"pointer",
+              borderRadius:1,
+            }}>✎</button>
+          )}
           {onDelete && (
             <button onClick={e=>{e.stopPropagation();onDelete(item.id);}} style={{
               fontFamily:"'Jost',sans-serif",fontSize:9,
@@ -538,8 +546,9 @@ function ClothingCard({ item, selected, onSelect, onDelete, onToggleWishlist, is
   );
 }
 
-function AddItemModal({ onSave, onClose, defaultWishlist }) {
-  const [form, setForm] = useState({
+function AddItemModal({ item, onSave, onClose, defaultWishlist }) {
+  const isEdit = !!item;
+  const [form, setForm] = useState(() => item ? { ...item } : {
     name:"", category:"Top", color:"Ivory / Cream", fabric:"Linen",
     occasions:[], aestheticTags:[], brand:"", notes:"",
     photo:"", isWishlist: defaultWishlist || false,
@@ -592,7 +601,7 @@ function AddItemModal({ onSave, onClose, defaultWishlist }) {
 
   function handleSave() {
     if (!form.name.trim()) return;
-    onSave({ ...form, id: uid(), addedAt: Date.now() });
+    onSave(isEdit ? { ...form } : { ...form, id: uid(), addedAt: Date.now() });
     onClose();
   }
 
@@ -629,10 +638,12 @@ function AddItemModal({ onSave, onClose, defaultWishlist }) {
             <div style={{fontFamily:"'Jost',sans-serif",fontSize:9,
               letterSpacing:"0.35em",textTransform:"uppercase",
               color:PALETTE.antiquGold,marginBottom:4}}>
-              {form.isWishlist ? "Add to Wishlist" : "Add to Closet"}
+              {isEdit
+                ? (form.isWishlist ? "Editing Wishlist Piece" : "Editing Closet Piece")
+                : (form.isWishlist ? "Add to Wishlist" : "Add to Closet")}
             </div>
             <div style={{fontFamily:"'Cormorant Garamond',serif",
-              fontSize:22,color:PALETTE.ink}}>New Piece</div>
+              fontSize:22,color:PALETTE.ink}}>{isEdit ? "Edit Piece" : "New Piece"}</div>
           </div>
           <button onClick={onClose} style={{
             background:"none",border:"none",cursor:"pointer",
@@ -696,6 +707,18 @@ function AddItemModal({ onSave, onClose, defaultWishlist }) {
                   <img src={form.photo} alt="" style={{
                     position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"
                   }}/>
+                  {!analyzing && (
+                    <div style={{
+                      position:"absolute",bottom:0,left:0,right:0,
+                      background:"rgba(44,37,32,0.55)",padding:"4px 0",
+                      textAlign:"center",
+                    }}>
+                      <span style={{
+                        fontFamily:"'Jost',sans-serif",fontSize:9,
+                        letterSpacing:"0.2em",textTransform:"uppercase",color:"white",
+                      }}>Tap to replace photo</span>
+                    </div>
+                  )}
                   {analyzing && (
                     <div style={{
                       position:"absolute",inset:0,
@@ -848,7 +871,7 @@ function AddItemModal({ onSave, onClose, defaultWishlist }) {
             letterSpacing:"0.3em",textTransform:"uppercase",
             color:analyzing?PALETTE.softInk:"white",
             cursor:analyzing?"wait":"pointer",
-          }}>Add to {form.isWishlist?"Wishlist":"Closet"}</button>
+          }}>{isEdit ? "Save Changes" : `Add to ${form.isWishlist?"Wishlist":"Closet"}`}</button>
         </div>
       </div>
     </div>
@@ -1328,6 +1351,7 @@ function SoftMuseumWardrobe() {
   const [showOutfitBuilder, setShowOutfitBuilder] = useState(false);
   const [tab, setTab] = useState("closet");
   const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState(null); // { item, list }
   const [selectedIds, setSelectedIds] = useState([]);
   const [filterCat, setFilterCat] = useState("All");
   const [searchQ, setSearchQ] = useState("");
@@ -1365,6 +1389,25 @@ function SoftMuseumWardrobe() {
     }));
     fsDel("wishlist", item.id);
     fsAdd("closet", updated);
+  }
+
+  function updateItem(updated, originalList) {
+    const targetList = updated.isWishlist ? "wishlist" : "closet";
+    if (targetList === originalList) {
+      setData(d => ({
+        ...d,
+        [originalList]: d[originalList].map(i => i.id === updated.id ? updated : i),
+      }));
+      fsAdd(originalList, updated);
+    } else {
+      setData(d => ({
+        ...d,
+        [originalList]: d[originalList].filter(i => i.id !== updated.id),
+        [targetList]: [...d[targetList], updated],
+      }));
+      fsDel(originalList, updated.id);
+      fsAdd(targetList, updated);
+    }
   }
 
   function toggleSelect(item) {
@@ -1445,6 +1488,8 @@ function SoftMuseumWardrobe() {
         ::-webkit-scrollbar-thumb { background: ${PALETTE.dustyRose}; }
         input:focus, textarea:focus, select:focus { outline: none; border-color: ${PALETTE.dustyRose} !important; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .smw-tabs::-webkit-scrollbar { display: none; }
+        .smw-tabs { scrollbar-width: none; -ms-overflow-style: none; }
       `}</style>
 
       {/* Header */}
@@ -1482,11 +1527,18 @@ function SoftMuseumWardrobe() {
         </div>
 
         {/* Nav tabs */}
-        <div style={{display:"flex",gap:0}}>
+        <div className="smw-tabs" style={{
+          display:"flex",gap:0,
+          overflowX: isMobile ? "auto" : "visible",
+          flexWrap: isMobile ? "nowrap" : "wrap",
+          WebkitOverflowScrolling:"touch",
+        }}>
           {navItems.map(n => (
             <button key={n.key} onClick={()=>{setTab(n.key);setSelectedIds([]);setFilterCat("All");}} style={{
-              padding:"10px 20px",border:"none",background:"transparent",
-              cursor:"pointer",position:"relative",
+              padding: isMobile ? "10px 12px" : "10px 20px",
+              border:"none",background:"transparent",
+              cursor:"pointer",position:"relative",flexShrink:0,
+              whiteSpace:"nowrap",
               fontFamily:"'Jost',sans-serif",fontSize:10,
               letterSpacing:"0.2em",textTransform:"uppercase",
               color:tab===n.key?PALETTE.ink:PALETTE.softInk,
@@ -1646,6 +1698,7 @@ function SoftMuseumWardrobe() {
                       item={item}
                       selected={selectedIds.includes(item.id)}
                       onSelect={tab==="closet"?toggleSelect:null}
+                      onEdit={i=>setEditingItem({item:i, list: tab==="wishlist"?"wishlist":"closet"})}
                       onDelete={id=>deleteItem(id, tab==="wishlist"?"wishlist":"closet")}
                       onToggleWishlist={tab==="wishlist"?moveToCloset:undefined}
                       isWishlist={tab==="wishlist"}
@@ -1713,6 +1766,14 @@ function SoftMuseumWardrobe() {
           onSave={addItem}
           onClose={()=>setShowAdd(false)}
           defaultWishlist={tab==="wishlist"}
+        />
+      )}
+
+      {editingItem && (
+        <AddItemModal
+          item={editingItem.item}
+          onSave={updated=>updateItem(updated, editingItem.list)}
+          onClose={()=>setEditingItem(null)}
         />
       )}
     </div>
